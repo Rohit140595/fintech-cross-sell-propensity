@@ -13,22 +13,22 @@ Stage 2 — Loan amount tier classifier (3-class XGBoost):
 
 from __future__ import annotations
 
-import json
-import pickle
-from pathlib import Path
+import json  # noqa: F401
+import pickle  # noqa: F401
+from pathlib import Path  # noqa: F401
 
 import numpy as np
 import optuna
 import pandas as pd
-import shap
+import shap  # noqa: F401
 import xgboost as xgb
 from sklearn.metrics import (
-    average_precision_score,
-    f1_score,
-    precision_recall_curve,
-    roc_auc_score,
+    average_precision_score,  # noqa: F401
+    f1_score,  # noqa: F401
+    precision_recall_curve,  # noqa: F401
+    roc_auc_score,  # noqa: F401
 )
-from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit
+from sklearn.model_selection import StratifiedKFold, TimeSeriesSplit  # noqa: F401
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
 

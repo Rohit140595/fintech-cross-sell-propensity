@@ -15,7 +15,7 @@ All features are computed using only loans issued strictly before cutoff_date.
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
+import numpy as np  # noqa: F401
 
 
 def compute_rfm_features(

@@ -85,7 +85,7 @@ def predict(request: PredictRequest):
     if "artifact" not in _store:
         raise HTTPException(status_code=503, detail="Model not loaded.")
 
-    loans  = [l.model_dump() for l in request.loans]
+    loans  = [loan.model_dump() for loan in request.loans]
     cutoff = request.cutoff_date
 
     try:
