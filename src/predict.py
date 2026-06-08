@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pandas as pd
 
-from src.features import build_feature_matrix
-from src.model import load_model
+from src.features import build_feature_matrix  # noqa: F401
+from src.model import load_model  # noqa: F401
 
 
 def predict_single(
