@@ -17,16 +17,37 @@ from sklearn.model_selection import train_test_split
 
 
 def load_config(config_path: str = "config.yaml") -> dict:
+    """
+    Load the central YAML config file.
+
+    Args:
+        config_path: Path to the YAML config file. Defaults to config.yaml
+                     in the current working directory.
+
+    Returns:
+        Dict of config values keyed by section (paths, data, split, model…).
+    """
     with open(config_path) as f:
         return yaml.safe_load(f)
 
 
 def load_raw(raw_dir: str, filename: str = "train.csv") -> pd.DataFrame:
     """
-    Load the cross-sell train CSV.
+    Load the Health Insurance Cross-Sell CSV from disk.
+
+    Expects train.csv from the Kaggle "Health Insurance Cross Sell Prediction"
+    dataset (~381K rows, 12 columns). The test.csv from Kaggle has no Response
+    column and is not used — we split train.csv ourselves via split().
+
+    Args:
+        raw_dir:  Directory containing the CSV files (e.g. "data/raw").
+        filename: CSV filename to load. Defaults to "train.csv".
 
     Returns:
-        DataFrame with one row per customer, 12 columns including Response.
+        DataFrame with one row per customer and 12 columns:
+        id, Gender, Age, Driving_License, Region_Code, Previously_Insured,
+        Vehicle_Age, Vehicle_Damage, Annual_Premium, Policy_Sales_Channel,
+        Vintage, Response.
     """
     df = pd.read_csv(Path(raw_dir) / filename)
     print(f"Loaded: {df.shape[0]:,} rows x {df.shape[1]} columns")
@@ -35,15 +56,23 @@ def load_raw(raw_dir: str, filename: str = "train.csv") -> pd.DataFrame:
 
 def clean(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Clean and type-cast the raw DataFrame.
+    Clean and type-cast the raw DataFrame into a fully numeric form.
 
-    Steps:
-      1. Encode Gender, Vehicle_Damage as binary (1/0).
-      2. Encode Vehicle_Age as ordered numeric (< 1 Year=0, 1-2 Year=1, > 2 Years=2).
-      3. Cast Region_Code and Policy_Sales_Channel to int.
+    Encoding decisions:
+      - Gender: Male=1, Female=0 (binary).
+      - Vehicle_Damage: Yes=1, No=0 (binary).
+      - Vehicle_Age: ordered numeric — < 1 Year=0, 1-2 Year=1, > 2 Years=2.
+        Ordered encoding preserves the monotonic relationship with conversion
+        rate observed in EDA (older vehicle → higher conversion).
+      - Region_Code, Policy_Sales_Channel: cast float → int (already numeric,
+        Kaggle stores them as float due to CSV formatting).
+
+    Args:
+        df: Raw DataFrame from load_raw().
 
     Returns:
-        Cleaned DataFrame — no string columns remain.
+        Copy of df with all string columns replaced by numeric encodings.
+        No columns are dropped — all 12 original columns are retained.
     """
     df = df.copy()
 
@@ -67,12 +96,21 @@ def split(
     random_state: int = 42,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Stratified train/test split on the Response target.
+    Stratified train/test split preserving the target class distribution.
 
-    Stratification preserves the ~12% positive rate in both sets.
+    Stratification ensures both sets reflect the overall ~12.3% positive rate
+    rather than leaving class balance to chance on a random split.
+
+    Args:
+        df:           Cleaned DataFrame from clean().
+        target_col:   Name of the binary target column. Defaults to "Response".
+        test_size:    Fraction of rows assigned to the test set. Defaults to
+                      0.20 (80/20 split → ~304K train, ~76K test).
+        random_state: Random seed for reproducibility.
 
     Returns:
-        (train_df, test_df) — both include the target column.
+        Tuple of (train_df, test_df). Both DataFrames include all columns
+        (features + target) and have reset integer indices.
     """
     train_df, test_df = train_test_split(
         df,

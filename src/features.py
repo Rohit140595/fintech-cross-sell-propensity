@@ -1,135 +1,150 @@
 """
-Feature engineering for LendingClub LTV prediction.
+Feature engineering for cross-sell propensity prediction.
 
-Four core feature families:
-  - RFM          : Recency, Frequency, Monetary — adapted for lending
-                   (months since last loan, number of loans, total borrowed).
-  - Credit       : FICO, DTI, grade, revolving utilization — the strongest
-                   predictors unique to lending data.
-  - Behavior     : Repayment history (fully paid vs. charged off), payoff speed.
-  - Profile      : Income, employment, home ownership, loan purpose, geography.
+Responsibilities:
+  - Transform raw cleaned columns into model-ready features.
+  - Frequency-encode high-cardinality categoricals (channel, region).
+  - Add interaction terms that capture the strongest signal combinations
+    identified in EDA (Previously_Insured × Vehicle_Damage, Age × damage).
+  - Apply log1p transform to right-skewed Annual_Premium.
 
-All features are computed using only loans issued strictly before cutoff_date.
+All transformations are fit on train and applied to test to prevent leakage.
 """
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
-import numpy as np  # noqa: F401
 
 
-def compute_rfm_features(
-    df: pd.DataFrame,
-    cutoff_date: pd.Timestamp,
-    member_col: str = "member_id",
-    date_col: str = "issue_d",
-    amount_col: str = "loan_amnt",
-) -> pd.DataFrame:
+def add_log_transform(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute lending-adapted RFM features per borrower.
+    Add log1p-transformed Annual_Premium to reduce right skew.
 
-    - Recency  : months since borrower's most recent loan before cutoff.
-    - Frequency: total number of loans taken before cutoff.
-    - Monetary : total amount borrowed before cutoff.
-    - avg_loan_amount: monetary / frequency.
+    Annual_Premium has a heavy right tail (max ~540K vs median ~31K).
+    log1p compresses the scale so tree splits and linear models treat
+    extreme values less differently from the bulk of the distribution.
+
+    Args:
+        df: DataFrame containing an Annual_Premium column (float).
 
     Returns:
-        DataFrame with one row per borrower.
+        Copy of df with an additional premium_log column (float).
+        The original Annual_Premium column is preserved.
     """
-    raise NotImplementedError
+    df = df.copy()
+    df["premium_log"] = np.log1p(df["Annual_Premium"])
+    return df
 
 
-def compute_credit_features(
-    df: pd.DataFrame,
-    cutoff_date: pd.Timestamp,
-    member_col: str = "member_id",
-) -> pd.DataFrame:
+def add_frequency_encoding(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    cols: list[str],
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Compute credit quality features per borrower (pre-cutoff loans only).
+    Frequency-encode high-cardinality categorical columns.
 
-    These are the strongest signals unique to lending data — not available
-    in e-commerce LTV models.
+    Replaces each category value with its relative frequency in the training
+    set. This gives the model a sense of how common each channel/region is
+    without exploding dimensionality via one-hot encoding.
 
-    Adds:
-        avg_fico        : mean FICO score across pre-cutoff loans.
-        avg_dti         : mean debt-to-income ratio.
-        avg_grade       : mean LendingClub grade (A=1 … G=7, lower = safer).
-        avg_int_rate    : mean interest rate offered.
-        avg_revol_util  : mean revolving credit utilization.
-        avg_open_acc    : mean number of open credit lines.
-        avg_delinq_2yrs : mean number of delinquencies in past 2 years.
-        credit_tenure_years : years from earliest credit line to cutoff.
+    Frequencies are computed only on train_df and then mapped onto test_df
+    to prevent leakage. Unknown test categories get frequency 0.0.
+
+    Args:
+        train_df: Training DataFrame. Frequencies are computed from this.
+        test_df:  Test DataFrame. Frequencies from train are applied here.
+        cols:     Column names to frequency-encode. Each column gets a new
+                  column named <col>_freq; the original column is preserved.
 
     Returns:
-        DataFrame with one row per borrower.
+        Tuple of (train_df, test_df) with new <col>_freq columns added.
     """
-    raise NotImplementedError
+    train_df = train_df.copy()
+    test_df  = test_df.copy()
+
+    for col in cols:
+        freq_map = (train_df[col].value_counts() / len(train_df)).to_dict()
+        train_df[f"{col}_freq"] = train_df[col].map(freq_map).fillna(0.0)
+        test_df[f"{col}_freq"]  = test_df[col].map(freq_map).fillna(0.0)
+
+    return train_df, test_df
 
 
-def compute_behavior_features(
-    df: pd.DataFrame,
-    cutoff_date: pd.Timestamp,
-    member_col: str = "member_id",
-) -> pd.DataFrame:
+def add_interaction_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Compute repayment behavior features per borrower (pre-cutoff loans only).
+    Add interaction terms capturing the strongest signal combinations from EDA.
 
-    Repayment history is a strong signal for repeat borrowing — borrowers
-    who repaid cleanly and quickly are more likely to return.
+    Two interactions are added:
 
-    Adds:
-        pct_fully_paid  : fraction of closed loans that were fully repaid
-                          (vs. charged off or defaulted).
-        ever_defaulted  : 1 if any loan was charged off or defaulted.
-        avg_int_paid    : mean total interest paid (total_pymnt - loan_amnt).
+    not_insured_x_damage:
+        Previously_Insured=0 AND Vehicle_Damage=1.
+        This is the single highest-conversion segment — customers without
+        existing vehicle insurance who have already experienced vehicle damage
+        are strongly motivated to get covered.
+
+    age_x_vehicle_damage:
+        Age × Vehicle_Damage.
+        Captures that older customers with damage history convert at higher
+        rates than younger ones. The product encodes both signals jointly.
+
+    Args:
+        df: DataFrame containing Previously_Insured (int 0/1),
+            Vehicle_Damage (int 0/1), and Age (int) columns.
 
     Returns:
-        DataFrame with one row per borrower.
+        Copy of df with two additional columns:
+            not_insured_x_damage (int 0/1)
+            age_x_vehicle_damage (float)
     """
-    raise NotImplementedError
-
-
-def compute_profile_features(
-    df: pd.DataFrame,
-    cutoff_date: pd.Timestamp,
-    member_col: str = "member_id",
-) -> pd.DataFrame:
-    """
-    Compute borrower profile features from most recent pre-cutoff loan.
-
-    Uses the most recent loan's values since these reflect the borrower's
-    current financial situation most accurately.
-
-    Adds:
-        annual_inc       : reported annual income.
-        emp_length       : employment length in years.
-        home_ownership   : encoded home ownership status.
-        top_purpose      : most frequent loan purpose (frequency encoded).
-        pct_debt_consol  : fraction of loans for debt consolidation.
-        state_freq       : frequency encoding of borrower's home state.
-
-    Returns:
-        DataFrame with one row per borrower.
-    """
-    raise NotImplementedError
+    df = df.copy()
+    df["not_insured_x_damage"] = (
+        (df["Previously_Insured"] == 0) & (df["Vehicle_Damage"] == 1)
+    ).astype(int)
+    df["age_x_vehicle_damage"] = df["Age"] * df["Vehicle_Damage"]
+    return df
 
 
 def build_feature_matrix(
-    df: pd.DataFrame,
-    cutoff_date: pd.Timestamp,
-) -> pd.DataFrame:
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    freq_cols: list[str] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Assemble the full feature matrix by joining all feature families.
+    Assemble the full feature matrix for both train and test sets.
 
-    Steps:
-      1. RFM features (recency, frequency, monetary)
-      2. Credit features (FICO, DTI, grade, utilization)
-      3. Behavior features (repayment history, defaults)
-      4. Profile features (income, purpose, geography)
+    Applies all feature engineering steps in order:
+      1. Log transform on Annual_Premium → premium_log.
+      2. Frequency encoding of high-cardinality categoricals → <col>_freq.
+      3. Interaction features → not_insured_x_damage, age_x_vehicle_damage.
 
-    All features use only loans issued before cutoff_date — leak-free.
+    Frequencies are always fit on train_df only and mapped to test_df,
+    so there is no leakage from test into train encoding statistics.
+
+    Args:
+        train_df:  Training DataFrame (output of src.data.clean + split).
+        test_df:   Test DataFrame (output of src.data.clean + split).
+        freq_cols: Columns to frequency-encode. Defaults to
+                   ["Policy_Sales_Channel", "Region_Code"].
 
     Returns:
-        DataFrame with one row per borrower and all engineered features.
+        Tuple of (train_df, test_df) with all engineered features added.
+        Original columns are preserved alongside new ones.
     """
-    raise NotImplementedError
+    if freq_cols is None:
+        freq_cols = ["Policy_Sales_Channel", "Region_Code"]
+
+    train_df = add_log_transform(train_df)
+    test_df  = add_log_transform(test_df)
+
+    train_df, test_df = add_frequency_encoding(train_df, test_df, cols=freq_cols)
+
+    train_df = add_interaction_features(train_df)
+    test_df  = add_interaction_features(test_df)
+
+    new_cols = ["premium_log"] + [f"{c}_freq" for c in freq_cols] + \
+               ["not_insured_x_damage", "age_x_vehicle_damage"]
+    print(f"Feature matrix: {train_df.shape[1]} columns | new: {new_cols}")
+
+    return train_df, test_df
