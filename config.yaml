@@ -1,0 +1,54 @@
+# Central configuration — all paths, model settings, and pipeline parameters.
+
+paths:
+  raw_dir:       data/raw
+  processed_dir: data/processed
+  model_dir:     models
+  model_file:    models/ltv_model.pkl
+  shap_stage1:   models/shap_stage1.json
+  shap_stage2:   models/shap_stage2.json
+
+data:
+  # Cutoff date — features use loans issued before this; target window is after
+  cutoff_date:      "2016-01-01"
+  # Prediction horizon: months after cutoff to look for a repeat loan
+  horizon_months:   24
+  # Only include borrowers with at least one fully closed loan before cutoff
+  # (Active loans at cutoff have unknown outcome — leakage risk)
+  valid_statuses:   ["Fully Paid", "Charged Off", "Default", "Does not meet the credit policy. Status:Fully Paid", "Does not meet the credit policy. Status:Charged Off"]
+
+split:
+  train_frac: 0.80    # chronological split by first loan issue date
+
+features:
+  shap_top_n_stage1: 20
+  shap_top_n_stage2: 15
+
+model:
+  random_state: 42
+  n_estimators: 500
+
+  # Stage 1: will the borrower return? (binary classifier)
+  stage1:
+    learning_rate: 0.05
+    max_depth: 6
+    subsample: 0.8
+    colsample_bytree: 0.8
+    scale_pos_weight: auto    # set to neg/pos ratio at training time
+
+  # Stage 2: loan amount tier — Low / Mid / High (3-class classifier)
+  # Tiers are tertiles of next_loan_amount among returning borrowers
+  stage2:
+    learning_rate: 0.05
+    max_depth: 4
+    subsample: 0.8
+    colsample_bytree: 0.8
+    num_class: 3
+
+tuning:
+  n_trials: 50
+  cv_folds: 5
+
+api:
+  host: 0.0.0.0
+  port: 8000
