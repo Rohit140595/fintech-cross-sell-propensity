@@ -43,4 +43,4 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build Docker image
-        run: docker build -t lending-club-ltv:${{ github.sha }} .
+        run: docker build -t cross-sell-propensity:${{ github.sha }} .

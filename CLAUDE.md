@@ -23,35 +23,29 @@ Behavioral guidelines to reduce common LLM coding mistakes.
 
 ---
 
-## Project-Specific: LendingClub LTV
+## Project: Fintech Cross-Sell Propensity
 
 ### Architecture
-- `src/data.py`     — load CSV, clean, compute targets, split
-- `src/features.py` — RFM, credit, behavior, profile features (all leak-free)
-- `src/model.py`    — two-stage: Stage 1 return classifier + Stage 2 tier classifier
-- `src/predict.py`  — inference pipeline (mirrors training exactly)
-- `src/api.py`      — FastAPI serving layer
+- `src/data.py`     — load CSV, clean, stratified split
+- `src/features.py` — stateless transforms + FrequencyEncoder
+- `src/model.py`    — sklearn Pipeline (FrequencyEncoder → TargetEncoder → XGBoost), Optuna tuning, evaluation, persistence
+- `src/predict.py`  — single-customer inference (mirrors training pipeline)
+- `src/api.py`      — FastAPI: POST /predict, GET /health
 
 ### Key constraints
-- **Cutoff date**: `2016-01-01` (in config.yaml)
-- **Prediction horizon**: 24 months after cutoff
-- **Leak-free**: all features use only loans issued strictly before cutoff_date
-- **Valid statuses**: only closed loans (Fully Paid / Charged Off / Default)
-  Active loans at cutoff have unknown outcome — including them leaks target info
-- **Return definition**: borrower takes a NEW loan that starts AFTER their
-  previous loan closed (no concurrent loan overlap)
-- **Grain**: one row per member_id (borrower), not per loan
+- **Leak-free**: FrequencyEncoder and TargetEncoder live inside the sklearn Pipeline — encoding stats fit on train fold only during CV
+- **Primary metric**: PR-AUC (not accuracy or ROC-AUC) — target is 12.3% positive rate
+- **Threshold**: F2-optimal (recall weighted 2x over precision)
+- **Model artifact**: Pipeline + threshold saved to `models/cross_sell_model.pkl`
+- **No retraining in shap_lift.ipynb** — load model from `models/`
 
-### Data facts (fill in after EDA)
-- Raw file: `data/raw/accepted_2007_to_2018Q4.csv`
-- Total loans: ~2.3M
-- Unique borrowers: TBD
-- Repeat borrowers: TBD (~15% expected)
-- Cutoff-eligible borrowers: TBD
+### Data facts
+- Raw file: `data/raw/train.csv` (Kaggle Health Insurance Cross Sell Prediction)
+- 381K customers, 10 features, binary target (`Response`)
+- 12.3% positive rate
 
 ### Don't do
-- Don't use `loan_status` of active loans as a feature (leaks target)
-- Don't include loans issued after cutoff_date in feature computation
-- Don't use `total_pymnt` for active loans (unknown final payment amount)
-- Don't random-shuffle before splitting — use chronological split
+- Don't fit any encoder outside the Pipeline — always fit inside CV folds
+- Don't use relative paths in notebooks — use `ROOT = Path("..").resolve()`
 - Don't save raw CSVs or trained models to git (both gitignored)
+- Don't retrain the model in `shap_lift.ipynb` — load from `models/`
