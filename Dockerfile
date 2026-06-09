@@ -1,8 +1,8 @@
 # Multi-stage build — keeps the final image lean.
 #
 # Usage:
-#   docker build -t lending-club-ltv .
-#   docker run -p 8000:8000 lending-club-ltv
+#   docker build -t cross-sell-propensity .
+#   docker run -p 8000:8000 -v $(pwd)/models:/app/models cross-sell-propensity
 
 FROM python:3.9-slim AS builder
 
